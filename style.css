@@ -1,0 +1,226 @@
+:root {
+  --bg: #f6f6f3;
+  --card: #fff;
+  --fg: #151515;
+  --line: #c4c4bd;
+  --wire: #8a8a84;
+  --dim: #5c5c58;
+  --accent: #0a58b0;
+  --bug: #e2ecf8;
+  --bad: #b3261e;
+  --sans: system-ui, -apple-system, "Helvetica Neue", sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0e1116;
+    --card: #171c23;
+    --fg: #ecece8;
+    --line: #3d444d;
+    --wire: #6f7780;
+    --dim: #a3abb4;
+    --accent: #7cc4ff;
+    --bug: #1c3047;
+    --bad: #ff8a80;
+  }
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  color: var(--fg);
+  font: 16px/1.4 var(--sans);
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 4px 12px;
+  cursor: pointer;
+}
+button:hover, button:focus-visible { border-color: var(--fg); outline: none; }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--bg); font-weight: 600; }
+
+nav {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 8px 16px 0;
+}
+
+main {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  padding: 16px;
+}
+#chart, #empty { margin: auto; }
+#empty { text-align: center; color: var(--dim); }
+#empty button { margin-top: 8px; }
+
+/* chart: positions are em-based, so the whole chart scales with its font-size */
+#chart { position: relative; user-select: none; -webkit-user-select: none; }
+.wires { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.wires path { fill: none; stroke: var(--wire); stroke-width: 1.5px; vector-effect: non-scaling-stroke; }
+.tray {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: .75em;
+  color: var(--dim);
+  font-weight: 600;
+}
+.tray::after { content: ""; flex: 1; border-top: 1px solid var(--line); }
+
+/* em sizes here must match boxWidth() in app.js */
+.box {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: .35em;
+  padding: 0 .8em;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  cursor: grab;
+  touch-action: none;
+}
+.box > *, .box span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.2; }
+.box .top { display: flex; align-items: center; gap: .5em; }
+.box .name { font-size: 1.25em; font-weight: 700; }
+.box .role {
+  flex-shrink: 0;
+  max-width: 60%;
+  padding: .1em .5em;
+  border-radius: 99px;
+  background: var(--bug);
+  color: var(--accent);
+  font-size: .75em;
+  font-weight: 600;
+}
+.box .ten { font-size: .85em; color: var(--dim); }
+.box:hover { border-color: var(--fg); }
+.box.moving { opacity: .3; }
+
+/* drag ghost and drop pad float above everything */
+.ghost {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 10;
+  pointer-events: none;
+  padding: 2px 10px;
+  border-radius: 99px;
+  background: var(--accent);
+  color: var(--bg);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.pad {
+  position: fixed;
+  z-index: 5;
+  display: grid;
+  grid-template-columns: 1fr 1.4fr 1fr;
+  grid-template-rows: repeat(3, 60px);
+  gap: 6px;
+  width: 400px;
+  padding: 6px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 8px 28px rgb(0 0 0 / .25);
+}
+.pad .zone {
+  display: grid;
+  place-items: center;
+  padding: 0 8px;
+  overflow: hidden;
+  text-align: center;
+  font-weight: 600;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.pad .zone[data-zone="boss"], .pad .zone[data-zone="report"] { grid-column: 1 / -1; }
+.pad .zone.on { background: var(--accent); border-color: var(--accent); color: var(--bg); }
+
+dialog {
+  width: min(92vw, 720px);
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--card);
+  color: var(--fg);
+  box-shadow: 0 12px 48px rgb(0 0 0 / .35);
+}
+dialog::backdrop { background: rgb(0 0 0 / .45); }
+dialog h2 { margin: 0 0 8px; font-size: 1.1em; }
+dialog p { margin: 0 0 12px; color: var(--dim); }
+dialog p b { color: var(--fg); }
+textarea {
+  display: block;
+  width: 100%;
+  height: 40vh;
+  padding: 8px;
+  font: 14px/1.4 var(--mono);
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  resize: vertical;
+  white-space: pre;
+}
+textarea:focus { outline: 2px solid var(--accent); }
+.dlg-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+.dlg-actions .spacer { flex: 1; }
+button.danger { color: var(--bad); }
+
+#edit { width: min(92vw, 440px); }
+#edit label { display: block; margin-bottom: 12px; font-size: .9em; color: var(--dim); }
+#edit input {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 1rem;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+#edit input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+#edit .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+#edit .err { min-height: 1.4em; margin: 0; color: var(--bad); }
+
+/* print: one landscape page, light colors, no chrome. Sizing happens in app.js on beforeprint. */
+@page { size: landscape; margin: .4in; }
+@media print {
+  :root {
+    --bg: #fff;
+    --card: #fff;
+    --fg: #000;
+    --line: #999;
+    --wire: #666;
+    --dim: #444;
+    --accent: #0a58b0;
+    --bug: #e2ecf8;
+    color-scheme: light;
+  }
+  * { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+  html, body { height: auto; }
+  nav, #empty { display: none !important; }
+  main { overflow: visible; padding: 0; }
+  #chart { margin: 0 auto; }
+}

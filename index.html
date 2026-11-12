@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Org Chart</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav>
+  <button id="btn-add">Add</button>
+  <button id="btn-data">Data</button>
+  <button id="btn-undo">Undo</button>
+  <button id="btn-clear">Clear</button>
+</nav>
+
+<main id="stage">
+  <div id="chart"></div>
+  <div id="empty" hidden>
+    <p>No people yet. Paste a table from a spreadsheet:<br><b>name, role, role start, org start</b></p>
+    <button id="btn-start" class="primary">Paste data</button>
+  </div>
+</main>
+
+<dialog id="dlg">
+  <form method="dialog">
+    <h2>Data</h2>
+    <p>
+      Paste CSV or tab-separated rows. Columns:
+      <b>name, role, role start, org start</b>, and optionally <b>manager</b>.
+      A header row is fine. Matching names keep their links, new names are added, and
+      missing names are removed. If a manager column is present, it sets the reporting lines.
+    </p>
+    <textarea id="data" spellcheck="false" placeholder="name,role,role start,org start
+Ada Lovelace,CTO,2022-01-10,2019-06-01
+Grace Hopper,Eng Manager,2023-04-03,2020-02-17
+Alan Turing,Staff Engineer,2024-09-01,2021-11-08"></textarea>
+    <div class="dlg-actions">
+      <button value="cancel">Cancel</button>
+      <button value="apply" class="primary">Apply</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="edit">
+  <form method="dialog" id="edit-form" novalidate>
+    <h2 id="edit-title">Edit person</h2>
+    <label>Name <input id="e-name" required autocomplete="off"></label>
+    <label>Role <input id="e-role" autocomplete="off"></label>
+    <div class="row">
+      <label>In role since <input id="e-rs" type="date"></label>
+      <label>At org since <input id="e-os" type="date"></label>
+    </div>
+    <p class="err" id="edit-err"></p>
+    <div class="dlg-actions">
+      <button type="button" id="btn-delete" class="danger">Delete</button>
+      <span class="spacer"></span>
+      <button type="button" id="btn-cancel">Cancel</button>
+      <button class="primary">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<script src="app.js"></script>
+</body>
+</html>
