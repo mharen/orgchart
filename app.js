@@ -1,7 +1,7 @@
 // Org chart. State lives in localStorage; see plans/PLAN.md.
 'use strict';
 
-const KEY = 'orgchart.v1';
+const KEY = 'orgchart.v2', OLD_KEY = 'orgchart.v1';
 // Layout runs on a grid: one x unit = UX em, one y unit = UY em. The chart scales via font-size.
 const UX = .6, UY = 1.25;
 const H = 4, GX = 3, GY = 3;    // box height, horizontal gap, vertical gap (grid units)
@@ -12,7 +12,8 @@ const chart = $('#chart'), stage = $('#stage'), dlg = $('#dlg'), edit = $('#edit
 const SANS = getComputedStyle(document.documentElement).getPropertyValue('--sans');
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 
-let state = load(), undo = [], W = 24, fs = 14, drag = null, short = new Map(), printing = false;
+// store holds every chart; state is the current one ({ name, people })
+let store = load(), state = store.charts[store.cur], undo = [], W = 24, fs = 14, drag = null, short = new Map(), printing = false;
 // printable area in CSS px: the smaller of Letter and A4 landscape, minus the @page margins in style.css
 const PRINT_W = 960, PRINT_H = 700;
 
@@ -21,11 +22,19 @@ const PRINT_W = 960, PRINT_H = 700;
 function load() {
   try {
     const s = JSON.parse(localStorage.getItem(KEY));
-    if (s && Array.isArray(s.people)) return s;
+    if (s && Array.isArray(s.charts) && s.charts.length) {
+      s.cur = Math.min(Math.max(0, s.cur | 0), s.charts.length - 1);
+      return s;
+    }
   } catch {}
-  return { people: [] };
+  let people = [];  // carry over a chart saved before multiple charts existed
+  try { const s = JSON.parse(localStorage.getItem(OLD_KEY)); if (s && Array.isArray(s.people)) people = s.people; } catch {}
+  return { cur: 0, charts: [{ name: 'org-1', people }] };
 }
-function save() { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch {} }
+function save() {
+  store.charts[store.cur] = state;  // undo replaces the state object
+  try { localStorage.setItem(KEY, JSON.stringify(store)); } catch {}
+}
 function commit(fn) {
   undo.push(JSON.stringify(state));
   if (undo.length > 100) undo.shift();
@@ -234,7 +243,16 @@ function layout(compact, kids, roots) {
   return { segs, boxes, w: Math.max(0, x - GX * 2), h };
 }
 
+function renderTabs() {
+  const many = store.charts.length > 1;
+  $('#tabs').innerHTML = store.charts.map((c, i) =>
+    `<span class="tab${i === store.cur ? ' on' : ''}"><button class="link" data-go="${i}">${esc(c.name)}</button>` +
+    (many ? `<button class="link x" data-del="${i}" title="Delete ${esc(c.name)}">×</button>` : '') + '</span>'
+  ).join('') + '<button class="link" data-new title="New chart">+</button>';
+}
+
 function render() {
+  renderTabs();
   short = shortNames();
   W = boxWidth();
   const people = [...state.people].sort(byOrg), kids = kidsMap(people);
@@ -442,4 +460,80 @@ $('#btn-clear').onclick = () => {
   if (state.people.length && confirm('Remove everyone? (Undo can bring them back.)')) commit(() => { state.people = []; });
 };
 
+// -- multiple charts ----------------------------------------------------------
+
+function nextName() {
+  const used = new Set(store.charts.map(c => c.name));
+  let i = 1;
+  while (used.has(`org-${i}`)) i++;
+  return `org-${i}`;
+}
+function switchTo(i) {
+  store.cur = i; state = store.charts[i]; undo = [];
+  fixCycles(); save(); render();
+}
+function addChart(people = []) {
+  store.charts.push({ name: nextName(), people });
+  switchTo(store.charts.length - 1);
+}
+function deleteChart(i) {
+  const c = store.charts[i];
+  if (store.charts.length < 2 || (c.people.length && !confirm(`Delete ${c.name}? This can't be undone.`))) return;
+  store.charts.splice(i, 1);
+  switchTo(i < store.cur ? store.cur - 1 : Math.min(store.cur, store.charts.length - 1));
+}
+$('#tabs').onclick = e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  if (b.dataset.go) switchTo(+b.dataset.go);
+  else if (b.dataset.del) deleteChart(+b.dataset.del);
+  else if (b.hasAttribute('data-new')) addChart();
+};
+
+// -- share links --------------------------------------------------------------
+// The chart rides in the URL fragment (#share=...), deflated and base64url-encoded.
+// Fragments never reach the server, so no logs and no URL length limit there.
+
+async function pack(obj) {
+  const s = new Blob([JSON.stringify(obj)]).stream().pipeThrough(new CompressionStream('deflate-raw'));
+  let bin = '';
+  for (const b of new Uint8Array(await new Response(s).arrayBuffer())) bin += String.fromCharCode(b);
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+async function unpack(str) {
+  const bytes = Uint8Array.from(atob(str.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
+  const s = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+  return JSON.parse(await new Response(s).text());
+}
+// payload: [[name, role, roleStart, orgStart, manager], ...]
+const toRows = () => state.people.map(p => [p.name, p.role, p.roleStart, p.orgStart, p.manager || '']);
+function fromRows(rows) {
+  if (!Array.isArray(rows)) throw new Error('bad share data');
+  const recs = new Map();
+  for (const r of rows) if (Array.isArray(r) && r[0] && !recs.has(String(r[0]))) {
+    const [name, role = '', roleStart = '', orgStart = '', manager = ''] = r.map(v => String(v ?? ''));
+    recs.set(name, { name, role, roleStart, orgStart, manager: manager || null });
+  }
+  return [...recs.values()];
+}
+
+$('#btn-share').onclick = async () => {
+  const b = $('#btn-share'), url = `${location.origin}${location.pathname}#share=${await pack(toRows())}`;
+  try {
+    await navigator.clipboard.writeText(url);
+    b.textContent = 'Link copied';
+    setTimeout(() => { b.textContent = 'Share'; }, 2000);
+  } catch { prompt('Copy this link:', url); }
+};
+
+async function openShared() {
+  const m = location.hash.match(/^#share=([\w-]+)$/);
+  if (!m) return;
+  history.replaceState(null, '', location.pathname + location.search);  // so a reload doesn't import it again
+  try { addChart(fromRows(await unpack(m[1]))); }
+  catch { alert('That share link is damaged or incomplete.'); }
+}
+addEventListener('hashchange', openShared);  // a link pasted into an already-open tab
+
 render();
+openShared();

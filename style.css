@@ -55,6 +55,11 @@ nav {
   gap: 8px;
   padding: 8px 16px 0;
 }
+#tabs { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; margin-right: auto; }
+button.link { padding: 0; border: 0; background: none; color: var(--dim); }
+button.link:hover, button.link:focus-visible { color: var(--fg); text-decoration: underline; }
+.tab.on > button:first-child { color: var(--fg); font-weight: 600; }
+.tab .x { margin-left: 4px; }
 
 main {
   flex: 1;

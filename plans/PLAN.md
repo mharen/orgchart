@@ -44,7 +44,7 @@ A plain bordered card, left-aligned, two lines:
 
 - `people`: an ordered array of `{name, role, roleStart, orgStart, manager}`.
 - `manager` is a name or `null`.
-- Stored in localStorage as JSON. Undo is a stack of snapshots (`⌘Z`/`Ctrl+Z`).
+- Stored in localStorage as JSON (multiple charts; see MULTI-CHART-AND-SHARE.md). Undo is a stack of snapshots (`⌘Z`/`Ctrl+Z`).
 
 ## Layout
 
