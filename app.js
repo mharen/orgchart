@@ -8,7 +8,7 @@ const H = 4, GX = 3, GY = 3;    // box height, horizontal gap, vertical gap (gri
 const MAX_FS = 14, MIN_FS = 5;  // chart font size range in px
 
 const $ = s => document.querySelector(s);
-const chart = $('#chart'), stage = $('#stage'), dlg = $('#dlg'), edit = $('#edit');
+const chart = $('#chart'), stage = $('#stage'), dlg = $('#dlg'), edit = $('#edit'), menu = $('#menu');
 const SANS = getComputedStyle(document.documentElement).getPropertyValue('--sans');
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 
@@ -24,12 +24,13 @@ function load() {
     const s = JSON.parse(localStorage.getItem(KEY));
     if (s && Array.isArray(s.charts) && s.charts.length) {
       s.cur = Math.min(Math.max(0, s.cur | 0), s.charts.length - 1);
+      s.sort ||= 'name';
       return s;
     }
   } catch {}
   let people = [];  // carry over a chart saved before multiple charts existed
   try { const s = JSON.parse(localStorage.getItem(OLD_KEY)); if (s && Array.isArray(s.people)) people = s.people; } catch {}
-  return { cur: 0, charts: [{ name: 'org-1', people }] };
+  return { cur: 0, sort: 'name', charts: [{ name: 'org-1', people }] };
 }
 function save() {
   store.charts[store.cur] = state;  // undo replaces the state object
@@ -43,9 +44,14 @@ function commit(fn) {
 function doUndo() { if (undo.length) { state = JSON.parse(undo.pop()); save(); render(); } }
 
 const byName = () => new Map(state.people.map(p => [p.name, p]));
-// longest at the org first; unknown dates last
-const orgTime = p => parseDate(p.orgStart)?.getTime() ?? Infinity;
-const byOrg = (a, b) => orgTime(a) - orgTime(b);
+// peer order: name as written, or longest tenure first (unknown dates last, ties by name)
+const startTime = s => parseDate(s)?.getTime() ?? Infinity;
+const nameCmp = (a, b) => a.name.localeCompare(b.name);
+const SORTS = {
+  name: nameCmp,
+  org: (a, b) => (startTime(a.orgStart) - startTime(b.orgStart)) || nameCmp(a, b),
+  role: (a, b) => (startTime(a.roleStart) - startTime(b.roleStart)) || nameCmp(a, b),
+};
 function kidsMap(people = state.people) {
   const k = new Map();
   for (const p of people) if (p.manager) (k.get(p.manager) || k.set(p.manager, []).get(p.manager)).push(p.name);
@@ -255,7 +261,8 @@ function render() {
   renderTabs();
   short = shortNames();
   W = boxWidth();
-  const people = [...state.people].sort(byOrg), kids = kidsMap(people);
+  menu.querySelectorAll('[data-sort]').forEach(b => b.classList.toggle('on', b.dataset.sort === store.sort));
+  const people = [...state.people].sort(SORTS[store.sort] || nameCmp), kids = kidsMap(people);
   $('#empty').hidden = people.length > 0;
   chart.hidden = !people.length;
   if (!people.length) { chart.innerHTML = ''; return; }
@@ -411,6 +418,21 @@ function openData() {
 $('#btn-data').onclick = $('#btn-start').onclick = openData;
 dlg.addEventListener('close', () => { if (dlg.returnValue === 'apply') importText($('#data').value); });
 $('#btn-undo').onclick = doUndo;
+
+// the menu drops down from its button; commands close it first (before any dialog or confirm),
+// while Share stays open to show "Link copied" and sort stays open to compare orders
+menu.addEventListener('beforetoggle', e => {
+  if (e.newState !== 'open') return;
+  const r = $('#btn-menu').getBoundingClientRect();
+  menu.style.top = r.bottom + 4 + 'px';
+  menu.style.right = innerWidth - r.right + 'px';
+});
+menu.addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  if (b.dataset.sort) { store.sort = b.dataset.sort; save(); render(); }
+  else if (b.id !== 'btn-share') menu.hidePopover();
+}, true);
 
 // -- edit one person ----------------------------------------------------------
 

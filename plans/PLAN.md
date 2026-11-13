@@ -49,8 +49,9 @@ A plain bordered card, left-aligned, two lines:
 ## Layout
 
 - Classic top-down tree: each parent is centered over its children, with SVG elbow connectors.
-- Peers (and roots, and the tray) are sorted by time at the org, longest first. Unknown dates
-  go last.
+- Peers (and roots, and the tray) are sorted by name as written (the default), time at the org, or
+  time in role. The tenure sorts put the longest first, unknown dates last, and ties by name. The
+  choice is saved with the store and applies to every chart.
 - A compact variant stacks a manager's leaf-only reports vertically on a side rail.
 - People with no manager and no reports sit in an "unassigned" tray below the chart.
 - Fit to screen: try both variants and every tray column count, then pick the arrangement that
@@ -70,7 +71,7 @@ A plain bordered card, left-aligned, two lines:
 
   - **reports to**: becomes the target's report
   - **manages**: takes the target's place in the tree, and the target reports to them
-  - **peer** (either side): same manager as the target. Order comes from the tenure sort.
+  - **peer** (either side): same manager as the target. Order comes from the peer sort.
   - **replace** (center): takes the target's place—same manager, and the target's reports now
     report to them. The target is unlinked and goes to the tray.
 - Dropping on empty space unassigns the person, so they become a root, or go to the tray if they
@@ -89,7 +90,8 @@ A plain bordered card, left-aligned, two lines:
 
 ## Toolbar
 
-Add, Data (bulk paste/edit/export), Undo, Clear.
+All actions sit behind a menu button in the upper right: Add, Data (bulk paste/edit/export), Undo,
+Clear, Share, and the peer sort.
 
 ## Serving
 

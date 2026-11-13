@@ -61,6 +61,27 @@ button.link:hover, button.link:focus-visible { color: var(--fg); text-decoration
 .tab.on > button:first-child { color: var(--fg); font-weight: 600; }
 .tab .x { margin-left: 4px; }
 
+/* actions menu: positioned under #btn-menu by app.js */
+#menu {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  min-width: 180px;
+  padding: 6px;
+  background: var(--card);
+  color: var(--fg);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 8px 28px rgb(0 0 0 / .25);
+}
+#menu:popover-open { display: flex; flex-direction: column; }
+#menu button { border-color: transparent; text-align: left; padding: 6px 10px; }
+#menu button:hover, #menu button:focus-visible { background: var(--bug); }
+#menu button[data-sort]::before { content: "✓"; display: inline-block; width: 1.25em; visibility: hidden; }
+#menu button.on::before { visibility: visible; }
+#menu hr { width: 100%; margin: 6px 0; border: 0; border-top: 1px solid var(--line); }
+#menu .label { padding: 2px 10px 4px; font-size: .85em; color: var(--dim); }
+
 main {
   flex: 1;
   min-height: 0;
@@ -225,7 +246,7 @@ button.danger { color: var(--bad); }
   }
   * { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
   html, body { height: auto; }
-  nav, #empty { display: none !important; }
+  nav, #menu, #empty { display: none !important; }
   main { overflow: visible; padding: 0; }
   #chart { margin: 0 auto; }
 }
