@@ -189,22 +189,26 @@ const shortName = n => short.get(n) || n;
 
 // A box is a name row (bold short name, then a role pill) over a tenure line. Sizes in em.
 const NAME = 1.25, ROLE = .75, TEN = .85, LH = 1.2;  // font sizes and line height
-const PAD = .8, GAP = .5, PILL = .375;               // box side padding, name-to-pill gap, pill side padding
+const PAD = .8, GAP = .5, PILL = .375, TRACK = .04;  // box side padding, name-to-pill gap, pill side padding, role letter-spacing
 
 const ctx = document.createElement('canvas').getContext('2d');
 // measure near the real size--system fonts swap optical cuts at large sizes
-const textEm = (t, weight, em) => { ctx.font = `${weight} ${em * MAX_FS}px ${SANS}`; return ctx.measureText(t).width / MAX_FS; };
+// track: letter-spacing in em of the text, counted between characters (the trailing one is invisible)
+const textEm = (t, weight, em, track = 0) => {
+  ctx.font = `${weight} ${em * MAX_FS}px ${SANS}`;
+  return ctx.measureText(t).width / MAX_FS + track * em * Math.max(0, [...t].length - 1);
+};
 // trim text with an ellipsis to fit max em
-function fit(t, weight, em, max) {
-  if (textEm(t, weight, em) <= max) return t;
-  while (t && textEm(t + '…', weight, em) > max) t = t.slice(0, -1);
+function fit(t, weight, em, max, track = 0) {
+  if (textEm(t, weight, em, track) <= max) return t;
+  while (t && textEm(t + '…', weight, em, track) > max) t = t.slice(0, -1);
   return t + '…';
 }
 // box width in grid units, sized to the widest content
 function boxWidth() {
   let em = 0;
   for (const p of state.people) {
-    const top = textEm(shortName(p.name), 700, NAME) + (p.role ? GAP + textEm(p.role, 600, ROLE) + 2 * PILL : 0);
+    const top = textEm(shortName(p.name), 700, NAME) + (p.role ? GAP + textEm(p.role, 600, ROLE, TRACK) + 2 * PILL : 0);
     em = Math.max(em, top, textEm(tenure(p), 400, TEN));
   }
   return Math.min(36, Math.max(16, Math.ceil((em + 2 * PAD + .4) / UX)));  // + padding and slack
@@ -267,31 +271,33 @@ const THEME = Object.fromEntries(Object.keys(INK).map(k => [k, `var(--${k})`]));
 function chartSVG(c, pad = 0, scale = 1) {
   const { segs, boxes, w, h, ty, tray } = shown, P = byName(), r2 = v => +v.toFixed(2);
   const X = v => r2(v * UX * MAX_FS), Y = v => r2(v * UY * MAX_FS), E = v => r2(v * MAX_FS);
-  const text = (cls, x, y, t, em) =>
-    `<text class="${cls}" x="${r2(x)}" y="${r2(y)}" font-size="${E(em)}" dominant-baseline="central">${esc(t)}</text>`;
+  // textLength pins the drawn width to the measured one--Safari draws text wider when the chart is scaled down
+  const text = (cls, x, y, t, em, weight, track = 0) =>
+    `<text class="${cls}" x="${r2(x)}" y="${r2(y)}" font-size="${E(em)}" dominant-baseline="central" ` +
+    `textLength="${E(textEm(t, weight, em, track))}" lengthAdjust="spacing">${esc(t)}</text>`;
   const out = [`<path class="wires" d="${segs.map(([a, b, c, d]) => `M${X(a)} ${Y(b)}L${X(c)} ${Y(d)}`).join('')}"/>`];
   if (tray) {
     const t = `Unassigned (${tray})`, cy = Y(ty) + E(.7);
-    out.push(text('tray', 0, cy, t, 1), `<path class="rule" d="M${E(textEm(t, 600, 1) + .75)} ${cy}H${X(w)}"/>`);
+    out.push(text('tray', 0, cy, t, 1, 600), `<path class="rule" d="M${E(textEm(t, 600, 1) + .75)} ${cy}H${X(w)}"/>`);
   }
   // the name row and tenure line, with a .35em gap between, centered in the box
   const rowH = NAME * LH, tenH = TEN * LH, top = (H * UY - rowH - .35 - tenH) / 2 + rowH / 2, ten = top + rowH / 2 + .35 + tenH / 2;
   const inner = W * UX - 2 * PAD, pillH = ROLE * (LH + .2);
   for (const [id, gx, gy] of boxes) {
     const p = P.get(id), x = X(gx), y = Y(gy), left = x + E(PAD);
-    const pill = p.role ? Math.min(textEm(p.role, 600, ROLE) + 2 * PILL, inner * .6) : 0;
+    const pill = p.role ? Math.min(textEm(p.role, 600, ROLE, TRACK) + 2 * PILL, inner * .6) : 0;
     const name = fit(shortName(p.name), 700, NAME, inner - (pill && pill + GAP)), px = left + E(textEm(name, 700, NAME) + GAP);
     out.push(`<g class="box" data-id="${esc(id)}">`,
       `<rect class="card" x="${x + .5}" y="${y + .5}" width="${X(W) - 1}" height="${Y(H) - 1}" rx="6"/>`,
-      text('name', left, y + E(top), name, NAME),
+      text('name', left, y + E(top), name, NAME, 700),
       pill ? `<rect class="pill" x="${r2(px)}" y="${r2(y + E(top - pillH / 2))}" width="${E(pill)}" height="${E(pillH)}" rx="${E(pillH / 2)}"/>` +
-        text('role', px + E(PILL), y + E(top), fit(p.role, 600, ROLE, pill - 2 * PILL), ROLE) : '',
-      text('ten', left, y + E(ten), fit(tenure(p), 400, TEN, inner), TEN),
+        text('role', px + E(PILL), y + E(top), fit(p.role, 600, ROLE, pill - 2 * PILL, TRACK), ROLE, 600, TRACK) : '',
+      text('ten', left, y + E(ten), fit(tenure(p), 400, TEN, inner), TEN, 400),
       '</g>');
   }
   const css = `.wires{fill:none;stroke:${c.wire};stroke-width:1.5px}.rule{stroke:${c.line}}.bg{fill:${c.bg}}` +
     `.card{fill:${c.card};stroke:${c.line}}.pill{fill:${c.bug}}.name{fill:${c.fg};font-weight:700}` +
-    `.role{fill:${c.accent};font-weight:600}.ten{fill:${c.dim}}.tray{fill:${c.dim};font-weight:600}`;
+    `.role{fill:${c.accent};font-weight:600;letter-spacing:${TRACK}em}.ten{fill:${c.dim}}.tray{fill:${c.dim};font-weight:600}`;
   const vw = X(w) + 2 * pad, vh = Y(h) + 2 * pad;
   return `<svg class="org" xmlns="http://www.w3.org/2000/svg" width="${r2(vw * scale)}" height="${r2(vh * scale)}" ` +
     `viewBox="${-pad} ${-pad} ${vw} ${vh}" font-family="${esc(SANS.trim())}">` +
