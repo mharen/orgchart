@@ -14,6 +14,7 @@ const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;',
 
 // store holds every chart; state is the current one ({ name, people })
 let store = load(), state = store.charts[store.cur], undo = [], W = 24, fs = 14, drag = null, short = new Map(), printing = false;
+let shown = null;  // the arrangement last drawn, which the SVG and PNG exports reuse
 // printable area in CSS px: the smaller of Letter and A4 landscape, minus the @page margins in style.css
 const PRINT_W = 960, PRINT_H = 700;
 
@@ -204,11 +205,11 @@ function boxHTML(p) {
 
 // -- layout -----------------------------------------------------------------
 
-// Lays out trees side by side. Returns box positions and connector paths, in grid units.
+// Lays out trees side by side. Returns box positions and connector segments [x1, y1, x2, y2], in grid units.
 // compact: a manager whose reports are all leaves stacks them on a side rail.
 function layout(compact, kids, roots) {
   const segs = [], boxes = [];
-  const line = (x1, y1, x2, y2) => segs.push(`M${x1} ${y1}L${x2} ${y2}`);
+  const line = (x1, y1, x2, y2) => segs.push([x1, y1, x2, y2]);
   function measure(id) {
     const ch = (kids.get(id) || []).map(measure), n = { id, ch, w: W, h: H };
     if (!ch.length) return n;
@@ -257,18 +258,27 @@ function renderTabs() {
   ).join('') + '<button class="link" data-new title="New chart">+</button>';
 }
 
+// people in peer order; roots head a tree, tray holds anyone with no manager and no reports
+function arrange() {
+  const people = [...state.people].sort(SORTS[store.sort] || nameCmp), kids = kidsMap(people);
+  return {
+    people, kids,
+    roots: people.filter(p => !p.manager && kids.has(p.name)).map(p => p.name),
+    tray: people.filter(p => !p.manager && !kids.has(p.name)).map(p => p.name),
+  };
+}
+
 function render() {
   renderTabs();
   short = shortNames();
   W = boxWidth();
   menu.querySelectorAll('[data-sort]').forEach(b => b.classList.toggle('on', b.dataset.sort === store.sort));
-  const people = [...state.people].sort(SORTS[store.sort] || nameCmp), kids = kidsMap(people);
+  const { people, kids, roots, tray } = arrange();
   $('#empty').hidden = people.length > 0;
   chart.hidden = !people.length;
+  shown = null;
   if (!people.length) { chart.innerHTML = ''; return; }
 
-  const roots = people.filter(p => !p.manager && kids.has(p.name)).map(p => p.name);
-  const tray = people.filter(p => !p.manager && !kids.has(p.name)).map(p => p.name);
   const availW = printing ? PRINT_W : stage.clientWidth - 32, availH = printing ? PRINT_H : stage.clientHeight - 32;
 
   // try both layouts and every tray width; keep whichever allows the biggest font
@@ -287,13 +297,14 @@ function render() {
   fs = Math.max(printing ? 2 : MIN_FS, Math.floor(best.f * 10) / 10);  // paper can go smaller than a screen
   const boxes = [...L.boxes];
   tray.forEach((id, i) => boxes.push([id, (i % cols) * (W + GX), ty + 2 + Math.floor(i / cols) * (H + 1)]));
+  shown = { segs: L.segs, boxes, w, h, ty, tray: tray.length };
 
   const P = byName();
   chart.style.fontSize = fs + 'px';
   chart.style.width = w * UX + 'em';
   chart.style.height = h * UY + 'em';
   chart.innerHTML =
-    `<svg class="wires" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><path d="${L.segs.join('')}"/></svg>` +
+    `<svg class="wires" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><path d="${L.segs.map(([a, b, c, d]) => `M${a} ${b}L${c} ${d}`).join('')}"/></svg>` +
     (tray.length ? `<div class="tray" style="top:${ty * UY}em">Unassigned (${tray.length})</div>` : '') +
     boxes.map(([id, x, y]) => `<div class="box" data-id="${esc(id)}" style="left:${x * UX}em;top:${y * UY}em;width:${W * UX}em;height:${H * UY}em">${boxHTML(P.get(id))}</div>`).join('');
 }
@@ -420,7 +431,7 @@ dlg.addEventListener('close', () => { if (dlg.returnValue === 'apply') importTex
 $('#btn-undo').onclick = doUndo;
 
 // the menu drops down from its button; commands close it first (before any dialog or confirm),
-// while Share stays open to show "Link copied" and sort stays open to compare orders
+// while Share and Copy as stay open to show "Copied" and sort stays open to compare orders
 menu.addEventListener('beforetoggle', e => {
   if (e.newState !== 'open') return;
   const r = $('#btn-menu').getBoundingClientRect();
@@ -431,6 +442,7 @@ menu.addEventListener('click', e => {
   const b = e.target.closest('button');
   if (!b) return;
   if (b.dataset.sort) { store.sort = b.dataset.sort; save(); render(); }
+  else if (b.dataset.copy) copyAs(b);
   else if (b.id !== 'btn-share') menu.hidePopover();
 }, true);
 
@@ -512,6 +524,116 @@ $('#tabs').onclick = e => {
   else if (b.hasAttribute('data-new')) addChart();
 };
 
+// -- copy as ----------------------------------------------------------------------
+// Text formats use full names in the current peer order; SVG and PNG are a picture of the chart as shown.
+
+const withRole = p => p.role ? `${p.name}, ${p.role}` : p.name;
+
+function toList() {
+  const { kids, roots, tray } = arrange(), P = byName();
+  const walk = (id, d) => [`${'  '.repeat(d)}- ${withRole(P.get(id))}`, ...(kids.get(id) || []).flatMap(c => walk(c, d + 1))];
+  const blocks = roots.map(r => [withRole(P.get(r)), ...kids.get(r).flatMap(c => walk(c, 0))].join('\n'));
+  if (tray.length) blocks.push(['Unassigned', ...tray.map(t => `- ${withRole(P.get(t))}`)].join('\n'));
+  return blocks.join('\n\n');
+}
+
+function toJSON() {
+  const { kids, roots, tray } = arrange(), P = byName();
+  const person = id => { const { name, role, roleStart, orgStart } = P.get(id); return { name, role, roleStart, orgStart }; };
+  const tree = id => ({ ...person(id), reports: (kids.get(id) || []).map(tree) });
+  return JSON.stringify({ chart: state.name, people: roots.map(tree), unassigned: tray.map(person) }, null, 2);
+}
+
+function toMermaid() {
+  const { people, kids, roots, tray } = arrange(), P = byName();
+  const ids = new Map(people.map((p, i) => [p.name, `p${i}`]));
+  const q = s => s.replace(/#/g, '#35;').replace(/"/g, '#quot;').replace(/</g, '#lt;').replace(/>/g, '#gt;');
+  const node = id => { const p = P.get(id); return `${ids.get(id)}["${q(p.name)}${p.role ? `<br>${q(p.role)}` : ''}"]`; };
+  const nodes = [], edges = [];
+  const walk = id => {
+    nodes.push(`  ${node(id)}`);
+    for (const c of kids.get(id) || []) { edges.push(`  ${ids.get(id)} --> ${ids.get(c)}`); walk(c); }
+  };
+  roots.forEach(walk);
+  const out = ['flowchart TD', ...nodes, ...edges];
+  if (tray.length) out.push('  subgraph unassigned["Unassigned"]', ...tray.map(t => `    ${node(t)}`), '  end');
+  return out.join('\n');
+}
+
+// the print palette from style.css, so a copied picture reads on any background
+const INK = { bg: '#fff', card: '#fff', fg: '#000', line: '#999', wire: '#666', dim: '#444', accent: '#0a58b0', bug: '#e2ecf8' };
+// box geometry mirrors the .box rules in style.css, at MAX_FS px per em
+function toSVG() {
+  const S = MAX_FS, M = 16, r2 = v => +v.toFixed(2);
+  const X = v => r2(v * UX * S), Y = v => r2(v * UY * S), E = v => r2(v * S);
+  const fit = (t, wt, size, max) => {
+    if (textEm(t, wt, size) <= max) return t;
+    while (t && textEm(t + '…', wt, size) > max) t = t.slice(0, -1);
+    return t + '…';
+  };
+  const text = (x, y, t, size, wt, fill) =>
+    `<text x="${r2(x)}" y="${r2(y)}" font-size="${E(size)}" font-weight="${wt}" fill="${fill}" dominant-baseline="central">${esc(t)}</text>`;
+  const { segs, boxes, w, h, ty, tray } = shown, P = byName(), out = [];
+
+  out.push(`<path d="${segs.map(([a, b, c, d]) => `M${X(a)} ${Y(b)}L${X(c)} ${Y(d)}`).join('')}" fill="none" stroke="${INK.wire}" stroke-width="1.5"/>`);
+  if (tray) {
+    const t = `Unassigned (${tray})`, cy = Y(ty) + E(.7);
+    out.push(text(0, cy, t, 1, 600, INK.dim), `<path d="M${E(textEm(t, 600, 1) + .75)} ${cy}H${X(w)}" stroke="${INK.line}"/>`);
+  }
+  // content: a 1.5em top row, .35em gap, and a 1.02em tenure line, centered in the 5em box
+  const inner = W * UX - 1.6 - 2 / S, top = 1.815, ten = 3.425;
+  for (const [id, gx, gy] of boxes) {
+    const p = P.get(id), x = X(gx), y = Y(gy), left = x + 1 + E(.8);
+    out.push(`<rect x="${x + .5}" y="${y + .5}" width="${X(W) - 1}" height="${Y(H) - 1}" rx="6" fill="${INK.card}" stroke="${INK.line}"/>`);
+    let pill = 0, role = '';
+    if (p.role) {
+      pill = Math.min(textEm(p.role, 600, .75) + .75, inner * .6);
+      role = fit(p.role, 600, .75, pill - .75);
+    }
+    const name = fit(shortName(p.name), 700, 1.25, inner - (pill ? pill + .5 : 0));
+    out.push(text(left, y + E(top), name, 1.25, 700, INK.fg));
+    if (pill) {
+      const px = left + E(textEm(name, 700, 1.25) + .5);
+      out.push(`<rect x="${r2(px)}" y="${r2(y + E(top - .525))}" width="${E(pill)}" height="${E(1.05)}" rx="${E(.525)}" fill="${INK.bug}"/>`,
+        text(px + E(.375), y + E(top), role, .75, 600, INK.accent));
+    }
+    out.push(text(left, y + E(ten), fit(tenure(p), 400, .85, inner), .85, 400, INK.dim));
+  }
+  const vw = X(w) + 2 * M, vh = Y(h) + 2 * M;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${vw}" height="${vh}" viewBox="${-M} ${-M} ${vw} ${vh}" font-family="${esc(SANS.trim())}">` +
+    `<rect x="${-M}" y="${-M}" width="${vw}" height="${vh}" fill="${INK.bg}"/>${out.join('')}</svg>`;
+}
+
+async function toPNG() {
+  const url = URL.createObjectURL(new Blob([toSVG()], { type: 'image/svg+xml' })), img = new Image();
+  try {
+    img.src = url;
+    await img.decode();
+    const w = img.naturalWidth, h = img.naturalHeight, k = Math.min(2, Math.sqrt(16e6 / (w * h)));  // 2x, within canvas limits
+    const c = Object.assign(document.createElement('canvas'), { width: Math.round(w * k), height: Math.round(h * k) });
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    return await new Promise((ok, fail) => c.toBlob(b => b ? ok(b) : fail(new Error('no image')), 'image/png'));
+  } finally { URL.revokeObjectURL(url); }
+}
+
+const COPY = { list: toList, csv: toCSV, json: toJSON, mermaid: toMermaid, svg: toSVG };
+function flash(b, msg) {
+  const t = b.dataset.text ||= b.textContent;
+  b.textContent = msg;
+  clearTimeout(b.flash);
+  b.flash = setTimeout(() => { b.textContent = t; }, 2000);
+}
+async function copyAs(b) {
+  if (!state.people.length) return flash(b, 'Nothing to copy');
+  try {
+    const kind = b.dataset.copy;
+    // the PNG goes in as a promise so the clipboard write still counts as part of the click (Safari)
+    if (kind === 'png') await navigator.clipboard.write([new ClipboardItem({ 'image/png': toPNG() })]);
+    else await navigator.clipboard.writeText(COPY[kind]());
+    flash(b, 'Copied');
+  } catch { flash(b, "Couldn't copy"); }
+}
+
 // -- share links --------------------------------------------------------------
 // The chart rides in the URL fragment (#share=...), deflated and base64url-encoded.
 // Fragments never reach the server, so no logs and no URL length limit there.
@@ -543,8 +665,7 @@ $('#btn-share').onclick = async () => {
   const b = $('#btn-share'), url = `${location.origin}${location.pathname}#share=${await pack(toRows())}`;
   try {
     await navigator.clipboard.writeText(url);
-    b.textContent = 'Link copied';
-    setTimeout(() => { b.textContent = 'Share'; }, 2000);
+    flash(b, 'Link copied');
   } catch { prompt('Copy this link:', url); }
 };
 
