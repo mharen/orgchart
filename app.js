@@ -271,10 +271,14 @@ const THEME = Object.fromEntries(Object.keys(INK).map(k => [k, `var(--${k})`]));
 function chartSVG(c, pad = 0, scale = 1) {
   const { segs, boxes, w, h, ty, tray } = shown, P = byName(), r2 = v => +v.toFixed(2);
   const X = v => r2(v * UX * MAX_FS), Y = v => r2(v * UY * MAX_FS), E = v => r2(v * MAX_FS);
-  // textLength pins the drawn width to the measured one--Safari draws text wider when the chart is scaled down
-  const text = (cls, x, y, t, em, weight, track = 0) =>
-    `<text class="${cls}" x="${r2(x)}" y="${r2(y)}" font-size="${E(em)}" dominant-baseline="central" ` +
-    `textLength="${E(textEm(t, weight, em, track))}" lengthAdjust="spacing">${esc(t)}</text>`;
+  // textLength pins the drawn width to the measured one--Safari draws text wider when the chart is scaled down.
+  // SVG collapses runs of spaces that canvas measures, and Safari scrambles the glyphs when the counts differ,
+  // so all but the last space in a run become no-break spaces, which don't collapse.
+  const text = (cls, x, y, t, em, weight, track = 0) => {
+    t = t.replace(/ (?= )/g, ' ');
+    return `<text class="${cls}" x="${r2(x)}" y="${r2(y)}" font-size="${E(em)}" dominant-baseline="central" ` +
+      `textLength="${E(textEm(t, weight, em, track))}" lengthAdjust="spacing">${esc(t)}</text>`;
+  };
   const out = [`<path class="wires" d="${segs.map(([a, b, c, d]) => `M${X(a)} ${Y(b)}L${X(c)} ${Y(d)}`).join('')}"/>`];
   if (tray) {
     const t = `Unassigned (${tray})`, cy = Y(ty) + E(.7);
