@@ -61,8 +61,8 @@ button.link:hover, button.link:focus-visible { color: var(--fg); text-decoration
 .tab.on > button:first-child { color: var(--fg); font-weight: 600; }
 .tab .x { margin-left: 4px; }
 
-/* actions menu: positioned under #btn-menu by app.js */
-#menu {
+/* actions menu and anniversaries: positioned under their buttons by app.js */
+#menu, #bell {
   position: fixed;
   inset: auto;
   margin: 0;
@@ -80,7 +80,46 @@ button.link:hover, button.link:focus-visible { color: var(--fg); text-decoration
 #menu button[data-sort]::before { content: "✓"; display: inline-block; width: 1.25em; visibility: hidden; }
 #menu button.on::before { visibility: visible; }
 #menu hr { width: 100%; margin: 6px 0; border: 0; border-top: 1px solid var(--line); }
-#menu .label { padding: 2px 10px 4px; font-size: .85em; color: var(--dim); }
+:is(#menu, #bell) .label { padding: 2px 10px 4px; font-size: .85em; color: var(--dim); }
+
+/* bell: a dot marks anniversaries within two weeks either way */
+#btn-bell { position: relative; }
+#btn-bell svg {
+  width: 1em;
+  height: 1em;
+  vertical-align: -.125em;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+#btn-bell.alert { color: var(--accent); }
+#btn-bell.alert::after {
+  content: "";
+  position: absolute;
+  top: 4px;
+  right: 8px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--bad);
+  box-shadow: 0 0 0 2px var(--card);
+}
+#bell { width: min(92vw, 340px); max-height: 70vh; overflow: auto; }
+#bell ul { margin: 0; padding: 0; list-style: none; }
+#bell li {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0 12px;
+  padding: 6px 10px;
+  border-radius: 6px;
+}
+#bell li + li { margin-top: 2px; }
+#bell li.near { background: var(--bug); }
+#bell li span { font-size: .85em; color: var(--dim); }
+#bell li span:nth-of-type(odd) { text-align: right; white-space: nowrap; }
+#bell p { margin: 0; padding: 2px 10px 6px; color: var(--dim); }
 
 main {
   flex: 1;
@@ -207,7 +246,7 @@ button.danger { color: var(--bad); }
   }
   * { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
   html, body { height: auto; }
-  nav, #menu, #empty { display: none !important; }
+  nav, #menu, #bell, #empty { display: none !important; }
   main { overflow: visible; padding: 0; }
   #chart { margin: 0 auto; }
 }

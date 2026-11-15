@@ -329,6 +329,7 @@ function arrange() {
 
 function render() {
   renderTabs();
+  renderBell();
   short = shortNames();
   W = boxWidth();
   menu.querySelectorAll('[data-sort]').forEach(b => b.classList.toggle('on', b.dataset.sort === store.sort));
@@ -481,14 +482,18 @@ $('#btn-data').onclick = $('#btn-start').onclick = openData;
 dlg.addEventListener('close', () => { if (dlg.returnValue === 'apply') importText($('#data').value); });
 $('#btn-undo').onclick = doUndo;
 
-// the menu drops down from its button; commands close it first (before any dialog or confirm),
+// popovers drop down from their buttons
+function dropDown(pop, btn) {
+  pop.addEventListener('beforetoggle', e => {
+    if (e.newState !== 'open') return;
+    const r = btn.getBoundingClientRect();
+    pop.style.top = r.bottom + 4 + 'px';
+    pop.style.right = innerWidth - r.right + 'px';
+  });
+}
+dropDown(menu, $('#btn-menu'));
+// menu commands close it first (before any dialog or confirm),
 // while Share and Copy as stay open to show "Copied", and sort stays open to compare orders
-menu.addEventListener('beforetoggle', e => {
-  if (e.newState !== 'open') return;
-  const r = $('#btn-menu').getBoundingClientRect();
-  menu.style.top = r.bottom + 4 + 'px';
-  menu.style.right = innerWidth - r.right + 'px';
-});
 menu.addEventListener('click', e => {
   const b = e.target.closest('button');
   if (!b) return;
@@ -496,6 +501,47 @@ menu.addEventListener('click', e => {
   else if (b.dataset.copy) copyAs(b);
   else menu.hidePopover();
 }, true);
+
+// -- anniversaries --------------------------------------------------------------
+// The bell lists whole-year anniversaries at the org and in role, from NEAR days ago to AHEAD days out,
+// and lights up when any fall within NEAR days either way.
+
+const NEAR = 14, AHEAD = 90, bell = $('#bell'), bellBtn = $('#btn-bell');
+function anniversaries() {
+  const now = new Date(), today = new Date(now.getFullYear(), now.getMonth(), now.getDate()), out = new Map();
+  for (const p of state.people) {
+    for (const [key, what] of [['orgStart', 'at org'], ['roleStart', p.role ? `as ${p.role}` : 'in role']]) {
+      if (/^\s*\d{4}\s*$/.test(p[key] || '')) continue;  // a bare year has no anniversary date
+      const d = parseDate(p[key]);
+      if (!d) continue;
+      for (let y = today.getFullYear() - 1; y <= today.getFullYear() + 1; y++) {
+        const n = y - d.getFullYear(), on = new Date(y, d.getMonth(), d.getDate());
+        const days = Math.round((on - today) / 864e5);  // rounded, since DST makes some days 23 or 25 hours
+        if (n < 1 || days < -NEAR || days > AHEAD) continue;
+        const k = `${p.name}\n${days}`;  // one entry per person per day
+        if (!out.has(k)) out.set(k, { name: p.name, on, days, what: [] });
+        out.get(k).what.push(`${n} year${n > 1 ? 's' : ''} ${what}`);
+      }
+    }
+  }
+  return [...out.values()].sort((a, b) => a.days - b.days || a.name.localeCompare(b.name));
+}
+function renderBell() {
+  const near = anniversaries().filter(a => a.days <= NEAR).length;
+  bellBtn.classList.toggle('alert', near > 0);
+  bellBtn.title = near ? `Anniversaries (${near} within ${NEAR} days)` : 'Anniversaries';
+}
+dropDown(bell, bellBtn);
+bell.addEventListener('beforetoggle', e => {
+  if (e.newState !== 'open') return;
+  renderBell();  // the day may have turned since the last render
+  const list = anniversaries(), date = d => d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  const rel = n => n === 0 ? 'today' : n === 1 ? 'tomorrow' : n === -1 ? 'yesterday' : n > 0 ? `in ${n} days` : `${-n} days ago`;
+  bell.innerHTML = '<div class="label">Anniversaries</div>' + (list.length
+    ? '<ul>' + list.map(a => `<li${a.days <= NEAR ? ' class="near"' : ''}><b>${esc(a.name)}</b><span>${date(a.on)}</span>` +
+      `<span>${esc(a.what.join(' · '))}</span><span>${rel(a.days)}</span></li>`).join('') + '</ul>'
+    : `<p>None from ${NEAR} days ago to ${AHEAD} days out.</p>`);
+});
 
 // -- edit one person ----------------------------------------------------------
 
