@@ -25,13 +25,12 @@ function load() {
     const s = JSON.parse(localStorage.getItem(KEY));
     if (s && Array.isArray(s.charts) && s.charts.length) {
       s.cur = Math.min(Math.max(0, s.cur | 0), s.charts.length - 1);
-      s.sort ||= 'name';
       return s;
     }
   } catch {}
   let people = [];  // carry over a chart saved before multiple charts existed
   try { const s = JSON.parse(localStorage.getItem(OLD_KEY)); if (s && Array.isArray(s.people)) people = s.people; } catch {}
-  return { cur: 0, sort: 'name', charts: [{ name: 'org-1', people }] };
+  return { cur: 0, sort: 'manual', charts: [{ name: 'org-1', people }] };
 }
 function save() {
   store.charts[store.cur] = state;  // undo replaces the state object
@@ -45,7 +44,7 @@ function commit(fn) {
 function doUndo() { if (undo.length) { state = JSON.parse(undo.pop()); save(); render(); } }
 
 const byName = () => new Map(state.people.map(p => [p.name, p]));
-// peer order: name as written, or longest tenure first (unknown dates last, ties by name)
+// peers show in saved order; the Sort menu reorders them once by name, or longest tenure first (unknown dates last, ties by name)
 const startTime = s => parseDate(s)?.getTime() ?? Infinity;
 const nameCmp = (a, b) => a.name.localeCompare(b.name);
 const SORTS = {
@@ -53,6 +52,12 @@ const SORTS = {
   org: (a, b) => (startTime(a.orgStart) - startTime(b.orgStart)) || nameCmp(a, b),
   role: (a, b) => (startTime(a.roleStart) - startTime(b.roleStart)) || nameCmp(a, b),
 };
+// move people (keeping their order) to just before the anchor, just after it, or to the end
+function place(movers, anchor = null, after = false) {
+  const rest = state.people.filter(p => !movers.includes(p)), i = rest.indexOf(anchor);
+  rest.splice(i < 0 ? rest.length : i + after, 0, ...movers);
+  state.people = rest;
+}
 function kidsMap(people = state.people) {
   const k = new Map();
   for (const p of people) if (p.manager) (k.get(p.manager) || k.set(p.manager, []).get(p.manager)).push(p.name);
@@ -317,9 +322,9 @@ function renderTabs() {
   ).join('') + '<button class="link" data-new title="New chart">+</button>';
 }
 
-// people in peer order; roots head a tree, tray holds anyone with no manager and no reports
+// people in saved order; roots head a tree, tray holds anyone with no manager and no reports
 function arrange() {
-  const people = [...state.people].sort(SORTS[store.sort] || nameCmp), kids = kidsMap(people);
+  const people = state.people, kids = kidsMap(people);
   return {
     people, kids,
     roots: people.filter(p => !p.manager && kids.has(p.name)).map(p => p.name),
@@ -332,7 +337,6 @@ function render() {
   renderBell();
   short = shortNames();
   W = boxWidth();
-  menu.querySelectorAll('[data-sort]').forEach(b => b.classList.toggle('on', b.dataset.sort === store.sort));
   const { people, kids, roots, tray } = arrange();
   $('#empty').hidden = people.length > 0;
   chart.hidden = !people.length;
@@ -369,7 +373,7 @@ function showPad(box) {
   hidePad();
   const n = esc(shortName(tid)), el = document.createElement('div');
   el.className = 'pad';
-  el.innerHTML = [['boss', `↑ manages ${n}`], ['peer', '← peer'], ['replace', `⇄ replace ${n}`], ['peer', 'peer →'], ['report', `↓ reports to ${n}`]]
+  el.innerHTML = [['boss', `↑ manages ${n}`], ['before', '← peer'], ['replace', `⇄ replace ${n}`], ['after', 'peer →'], ['report', `↓ reports to ${n}`]]
     .map(([z, t]) => `<div class="zone" data-zone="${z}">${t}</div>`).join('');
   document.body.append(el);
   const r = box.getBoundingClientRect(), pw = el.offsetWidth, ph = el.offsetHeight;
@@ -411,17 +415,27 @@ function endDrag() {
 
 function apply(op, id, tid, alone) {
   if (op === 'detach' && !byName().get(id).manager && !(alone && kidsMap().has(id))) return;
+  // everyone else stays put: the mover lands where it was dropped
   commit(() => {
     const P = byName(), x = P.get(id), t = P.get(tid);
-    if (alone) state.people.forEach(p => { if (p.manager === id) p.manager = x.manager; });
-    if (op === 'detach') x.manager = null;
-    else if (op === 'report') x.manager = tid;
-    else if (op === 'peer') x.manager = t.manager;
-    else if (op === 'boss') { x.manager = t.manager; t.manager = id; }
+    if (alone) {  // their reports move up into their spot
+      const kids = state.people.filter(p => p.manager === id);
+      kids.forEach(p => { p.manager = x.manager; });
+      place(kids, x);
+    }
+    if (op === 'detach') { x.manager = null; place([x]); }
+    else if (op === 'report') {  // after the target's other reports
+      const last = state.people.findLast(p => p.manager === tid && p !== x);
+      x.manager = tid;
+      if (last) place([x], last, true);
+    }
+    else if (op === 'before' || op === 'after') { x.manager = t.manager; place([x], t, op === 'after'); }
+    else if (op === 'boss') { x.manager = t.manager; t.manager = id; place([x], t); }
     else if (op === 'replace') {  // take the target's spot; the target goes to the tray
       x.manager = t.manager;
       for (const p of state.people) if (p.manager === tid) p.manager = id;
       t.manager = null;
+      place([x], t);
     }
   });
 }
@@ -497,7 +511,7 @@ dropDown(menu, $('#btn-menu'));
 menu.addEventListener('click', e => {
   const b = e.target.closest('button');
   if (!b) return;
-  if (b.dataset.sort) { store.sort = b.dataset.sort; save(); render(); }
+  if (b.dataset.sort) commit(() => state.people.sort(SORTS[b.dataset.sort]));
   else if (b.dataset.copy) copyAs(b);
   else menu.hidePopover();
 }, true);
@@ -580,9 +594,10 @@ $('#btn-cancel').onclick = () => edit.close();
 $('#btn-delete').onclick = () => {
   const id = editing;
   edit.close();
-  commit(() => {  // their reports move up to their manager
-    const x = byName().get(id);
-    for (const p of state.people) if (p.manager === id) p.manager = x.manager;
+  commit(() => {  // their reports move up to their manager, into their spot
+    const x = byName().get(id), kids = state.people.filter(p => p.manager === id);
+    kids.forEach(p => { p.manager = x.manager; });
+    place(kids, x);
     state.people.splice(state.people.indexOf(x), 1);
   });
 };
@@ -737,5 +752,10 @@ async function openShared() {
 }
 addEventListener('hashchange', openShared);  // a link pasted into an already-open tab
 
+// charts saved while peers were always shown sorted: bake that order in, once
+if (store.sort !== 'manual') {
+  for (const c of store.charts) c.people.sort(SORTS[store.sort] || nameCmp);
+  store.sort = 'manual'; save();
+}
 render();
 openShared();
